@@ -32,6 +32,7 @@ impl Move {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CanPromoteMove {
     from: HexVector,
     to: HexVector,
@@ -137,6 +138,7 @@ impl MaybePromoteMove {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IllegalMove {
     SrcOutOfBound(HexVector),
     DestOutOfBound(HexVector),
