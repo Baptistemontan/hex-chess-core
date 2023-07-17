@@ -225,8 +225,27 @@ impl Board {
                 if to.mag() == 5 && to.distance(HexVector::new_axial(0, -5)) <= 5 {
                     // can promote
                     Self::handle_promotion(from, to, Color::White, promote_to, take_piece)
+                } else if Self::original_piece_at(to)
+                    .is_some_and(|original_piece| original_piece.color == Color::White)
+                {
+                    // if the pawn takes and land on a place where there is originally a piece of it's color, it means
+                    // that it's an orginal pawn and land on an original pawn position, so it stays an original pawn
+                    Ok(MaybePromoteMove::new_move(
+                        from,
+                        to,
+                        piece,
+                        PieceKind::OriginalPawn,
+                        take_piece,
+                    ))
                 } else {
-                    Ok(default_move)
+                    // else it becomes a normal pawn
+                    Ok(MaybePromoteMove::new_move(
+                        from,
+                        to,
+                        piece,
+                        PieceKind::Pawn,
+                        take_piece,
+                    ))
                 }
             }
             // black pawn takes
@@ -237,8 +256,27 @@ impl Board {
                 if to.mag() == 5 && to.distance(HexVector::new_axial(0, 5)) <= 5 {
                     // can promote
                     Self::handle_promotion(from, to, Color::Black, promote_to, take_piece)
+                } else if Self::original_piece_at(to)
+                    .is_some_and(|original_piece| original_piece.color == Color::Black)
+                {
+                    // if the pawn takes and land on a place where there is originally a piece of it's color, it means
+                    // that it's an orginal pawn and land on an original pawn position, so it stays an original pawn
+                    Ok(MaybePromoteMove::new_move(
+                        from,
+                        to,
+                        piece,
+                        PieceKind::OriginalPawn,
+                        take_piece,
+                    ))
                 } else {
-                    Ok(default_move)
+                    // else it becomes a normal pawn
+                    Ok(MaybePromoteMove::new_move(
+                        from,
+                        to,
+                        piece,
+                        PieceKind::Pawn,
+                        take_piece,
+                    ))
                 }
             }
             // white pawn en passant
@@ -372,9 +410,7 @@ impl Board {
         // instead of going through every opponent piece and check if they have line of sight on the king, start from king and check every line of sight.
 
         // check pawns (vectors from the king pos)
-        for pos_to_check in
-            Piece::new(self.current_color_turn, PieceKind::Pawn).get_moves_from(king_pos)
-        {
+        for pos_to_check in Piece::new(color, PieceKind::Pawn).get_moves_from(king_pos) {
             if let Some(piece) = self.get_piece_at(pos_to_check) {
                 if piece.color == color {
                     continue;
@@ -460,7 +496,7 @@ impl Board {
                     break;
                 }
                 if let Some(piece) = self.get_piece_at(pos_to_check) {
-                    if piece.color == self.current_color_turn {
+                    if piece.color == color {
                         break;
                     }
                     if let PieceKind::Rook | PieceKind::Queen = piece.kind {
@@ -472,9 +508,7 @@ impl Board {
         }
 
         // checks knight
-        for pos_to_check in
-            Piece::new(self.current_color_turn, PieceKind::Knight).get_moves_from(king_pos)
-        {
+        for pos_to_check in Piece::new(color, PieceKind::Knight).get_moves_from(king_pos) {
             if let Some(piece) = self.get_piece_at(pos_to_check) {
                 if piece.color == color {
                     continue;
@@ -486,9 +520,7 @@ impl Board {
         }
 
         // lastly check for the other king pos
-        for pos_to_check in
-            Piece::new(self.current_color_turn, PieceKind::King).get_moves_from(king_pos)
-        {
+        for pos_to_check in Piece::new(color, PieceKind::King).get_moves_from(king_pos) {
             if let Some(piece) = self.get_piece_at(pos_to_check) {
                 if piece.color == color {
                     continue;
