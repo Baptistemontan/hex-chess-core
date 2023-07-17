@@ -1,11 +1,10 @@
-use serde::{Deserialize, Serialize};
-
 use crate::{
     hex_coord::HexVector,
     piece::{Color, Piece, PieceKind},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Move {
     pub from: HexVector,
     pub to: HexVector,

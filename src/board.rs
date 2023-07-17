@@ -1,14 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
     hex_coord::{HexMap, HexVector},
     mov::{CanPromoteMove, IllegalMove, MaybePromoteMove, Move},
     piece::{Color, Piece, PieceKind, PieceMove},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Board {
     map: HexMap<Option<Piece>>,
     history: Vec<Move>,
@@ -625,6 +624,7 @@ mod tests {
         assert!(board.is_in_check(Color::Black));
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_ser_de() {
         let board = Board::new();
@@ -636,6 +636,7 @@ mod tests {
         assert_eq!(board, de_board);
     }
 
+    #[cfg(feature = "serde")]
     #[ignore = "Just output the json of a serialiazed default board"]
     #[test]
     fn result_serialization() {

@@ -1,18 +1,14 @@
-use std::{collections::HashMap, hash::Hash, marker::PhantomData};
+use std::{collections::HashMap, marker::PhantomData};
 
 use super::HexVector;
-
-use serde::{
-    de::{DeserializeSeed, Visitor},
-    Deserialize, Serialize,
-};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HexMap<T> {
     map: HashMap<HexVector, T>,
 }
 
-impl<T: Serialize> Serialize for HexMap<T> {
+#[cfg(feature = "serde")]
+impl<T: serde::Serialize> serde::Serialize for HexMap<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -21,12 +17,14 @@ impl<T: Serialize> Serialize for HexMap<T> {
     }
 }
 
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for HexMap<T> {
+#[cfg(feature = "serde")]
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for HexMap<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let map = MapDeserializer::default().deserialize(deserializer)?;
+        let map_deserializer = MapDeserializer::default();
+        let map = serde::de::DeserializeSeed::deserialize(map_deserializer, deserializer)?;
         Ok(HexMap { map })
     }
 }
@@ -104,12 +102,14 @@ impl<'a, T> IntoIterator for &'a HexMap<T> {
     }
 }
 
+#[cfg(feature = "serde")]
 struct MapSerializer<'a, K, V>(&'a HashMap<K, V>);
 
-impl<'a, K, V> Serialize for MapSerializer<'a, K, V>
+#[cfg(feature = "serde")]
+impl<'a, K, V> serde::Serialize for MapSerializer<'a, K, V>
 where
-    K: Serialize,
-    V: Serialize,
+    K: serde::Serialize,
+    V: serde::Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -131,10 +131,11 @@ impl<K, V> Default for MapDeserializer<K, V> {
     }
 }
 
-impl<'de, K, V> DeserializeSeed<'de> for MapDeserializer<K, V>
+#[cfg(feature = "serde")]
+impl<'de, K, V> serde::de::DeserializeSeed<'de> for MapDeserializer<K, V>
 where
-    K: Deserialize<'de> + Hash + Eq,
-    V: Deserialize<'de>,
+    K: serde::Deserialize<'de> + core::hash::Hash + Eq,
+    V: serde::Deserialize<'de>,
 {
     type Value = HashMap<K, V>;
 
@@ -146,10 +147,11 @@ where
     }
 }
 
-impl<'de, K, V> Visitor<'de> for MapDeserializer<K, V>
+#[cfg(feature = "serde")]
+impl<'de, K, V> serde::de::Visitor<'de> for MapDeserializer<K, V>
 where
-    K: Deserialize<'de> + Hash + Eq,
-    V: Deserialize<'de>,
+    K: serde::Deserialize<'de> + core::hash::Hash + Eq,
+    V: serde::Deserialize<'de>,
 {
     type Value = HashMap<K, V>;
 

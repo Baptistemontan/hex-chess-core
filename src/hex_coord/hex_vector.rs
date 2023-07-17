@@ -1,7 +1,5 @@
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-use serde::{Deserialize, Serialize};
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Default)]
 pub struct HexVector {
     q: isize,
@@ -150,7 +148,8 @@ impl Mul<isize> for HexVector {
     }
 }
 
-impl Serialize for HexVector {
+#[cfg(feature = "serde")]
+impl serde::Serialize for HexVector {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -159,12 +158,13 @@ impl Serialize for HexVector {
     }
 }
 
-impl<'de> Deserialize<'de> for HexVector {
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for HexVector {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let (q, r) = Deserialize::deserialize(deserializer)?;
+        let (q, r) = serde::Deserialize::deserialize(deserializer)?;
         Ok(HexVector::new_axial(q, r))
     }
 }
