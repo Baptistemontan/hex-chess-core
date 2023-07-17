@@ -7,11 +7,11 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Move {
-    pub(crate) from: HexVector,
-    pub(crate) to: HexVector,
-    pub(crate) original_piece: Piece,
-    pub(crate) becomes: PieceKind,
-    pub(crate) take: Option<(Piece, HexVector)>,
+    pub from: HexVector,
+    pub to: HexVector,
+    pub original_piece: Piece,
+    pub becomes: PieceKind,
+    pub take: Option<(Piece, HexVector)>,
 }
 
 impl Move {
