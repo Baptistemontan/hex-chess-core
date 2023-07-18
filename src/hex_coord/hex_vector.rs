@@ -40,7 +40,7 @@ impl HexVector {
 
     fn gcd2(mut n: usize, mut m: usize) -> usize {
         if n == 0 || m == 0 {
-            return 1;
+            return std::cmp::max(n, m);
         }
         while m != 0 {
             if m < n {
