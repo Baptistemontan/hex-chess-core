@@ -313,7 +313,9 @@ impl Board {
             }
 
             // invalid pawn move
-            (PieceKind::Pawn, _, _, _, None) => Err(IllegalMove::InvalidMovement(piece, vector)),
+            (PieceKind::Pawn | PieceKind::OriginalPawn, _, _, _, None) => {
+                Err(IllegalMove::InvalidMovement(piece, vector))
+            }
             // for any other piece check if a piece is in the way
             (_, _, _, _, None) => {
                 let normalized_vec = vector.normalize();
@@ -610,6 +612,44 @@ mod tests {
         b1.back_one_turn();
 
         assert_eq!(b1, b2);
+    }
+
+    #[test]
+    fn test_illegal_original_pawn_move() {
+        let mut board = Board::new();
+
+        let err = board
+            .play_move(HexVector::new_axial(3, 1), HexVector::new_axial(4, 0), None)
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            IllegalMove::InvalidMovement(
+                Piece::new(Color::White, PieceKind::OriginalPawn),
+                HexVector::new_axial(1, -1)
+            )
+        )
+    }
+
+    #[test]
+    fn test_illegal_rook_move() {
+        let mut board = Board::new();
+
+        let err = board
+            .play_move(
+                HexVector::new_axial(3, 2),
+                HexVector::new_axial(3, -3),
+                None,
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            IllegalMove::PieceInTheWay(
+                Piece::new(Color::White, PieceKind::OriginalPawn),
+                HexVector::new_axial(3, 1)
+            )
+        )
     }
 
     #[test]
