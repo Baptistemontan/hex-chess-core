@@ -282,6 +282,7 @@ impl Board {
             // white pawn en passant
             (PieceKind::Pawn, Color::White, None, Some(last_move), None)
                 if last_move.original_piece.kind == PieceKind::OriginalPawn
+                    && (last_move.from.distance(last_move.to) == 2)
                     && ((vector == HexVector::new_axial(-1, 0)
                         && last_move.to == (from + HexVector::new_axial(-1, 1)))
                         || (vector == HexVector::new_axial(1, -1)
@@ -298,6 +299,7 @@ impl Board {
             // black pawn en passant
             (PieceKind::Pawn, Color::Black, None, Some(last_move), None)
                 if last_move.original_piece.kind == PieceKind::OriginalPawn
+                    && (last_move.from.distance(last_move.to) == 2)
                     && ((vector == HexVector::new_axial(-1, 1)
                         && last_move.to == (from + HexVector::new_axial(-1, 0)))
                         || (vector == HexVector::new_axial(1, 0)
