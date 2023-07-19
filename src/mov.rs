@@ -34,10 +34,10 @@ impl Move {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CanPromoteMove {
-    from: HexVector,
-    to: HexVector,
-    color: Color,
-    take: Option<(Piece, HexVector)>,
+    pub from: HexVector,
+    pub to: HexVector,
+    pub color: Color,
+    pub take: Option<(Piece, HexVector)>,
 }
 
 impl CanPromoteMove {
