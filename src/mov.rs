@@ -150,4 +150,5 @@ pub enum IllegalMove {
     CantPromoteTo(PieceKind),
     InvalidMovement(Piece, HexVector),
     ResultToSelfInCheck,
+    NotYourTurn,
 }
