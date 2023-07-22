@@ -20,6 +20,13 @@ impl Default for Board {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameEnd {
+    Win(Color),
+    Draw,
+    Stalemate { winner: Color },
+}
+
 impl Board {
     const fn original_piece_at(pos: HexVector) -> Option<Piece> {
         let (color, pos) = if pos.get_r() >= 0 {
@@ -71,8 +78,15 @@ impl Board {
     }
 
     pub fn get_current_player_pieces(&self) -> impl Iterator<Item = (HexVector, Piece)> + '_ {
-        let filter_fn = |(coord, piece): (HexVector, &Option<Piece>)| match piece {
-            Some(piece) if piece.color == self.current_color_turn => Some((coord, *piece)),
+        self.get_player_pieces_for(self.current_color_turn)
+    }
+
+    pub fn get_player_pieces_for(
+        &self,
+        color: Color,
+    ) -> impl Iterator<Item = (HexVector, Piece)> + '_ {
+        let filter_fn = move |(coord, piece): (HexVector, &Option<Piece>)| match piece {
+            Some(piece) if piece.color == color => Some((coord, *piece)),
             _ => None,
         };
         self.map.iter().filter_map(filter_fn)
@@ -370,9 +384,16 @@ impl Board {
     }
 
     pub fn get_legal_moves(&mut self) -> HashMap<HexVector, HashSet<MaybePromoteMove>> {
+        self.get_legal_moves_for(self.current_color_turn)
+    }
+
+    pub fn get_legal_moves_for(
+        &mut self,
+        color: Color,
+    ) -> HashMap<HexVector, HashSet<MaybePromoteMove>> {
         let mut legal_moves: HashMap<HexVector, HashSet<MaybePromoteMove>> = HashMap::new();
 
-        for (from, piece) in self.get_current_player_pieces().collect::<Vec<_>>() {
+        for (from, piece) in self.get_player_pieces_for(color).collect::<Vec<_>>() {
             for to in piece.get_moves_from(from) {
                 if let Ok(mov) = self.can_go_from_to(piece, from, to, None) {
                     legal_moves.entry(from).or_default().insert(mov);
@@ -598,6 +619,55 @@ impl Board {
         }
 
         self.current_color_turn = !self.current_color_turn
+    }
+
+    fn get_remaining_pieces_for(&self, color: Color) -> impl Iterator<Item = PieceKind> + '_ {
+        self.map
+            .iter()
+            .filter_map(|(_, piece)| piece.as_ref())
+            .filter(move |piece| piece.color == color)
+            .map(|piece| piece.kind)
+    }
+
+    fn has_enough_mat(&self, color: Color) -> bool {
+        // TODO: verify those informations
+        let mut bishop_count = 0;
+        let mut knight_count = 0;
+
+        // can mate with a rook and a king, so a queen can and a pawn potentially can.
+
+        for kind in self.get_remaining_pieces_for(color) {
+            match kind {
+                PieceKind::OriginalPawn | PieceKind::Pawn | PieceKind::Queen | PieceKind::Rook => {
+                    return true
+                }
+                PieceKind::Knight => bishop_count += 1,
+                PieceKind::Bishop => knight_count += 1,
+                PieceKind::King => (),
+            }
+        }
+
+        // can mate with 2 knight, a knight and a bishop, or 3 bishops
+
+        knight_count == 2 || knight_count == 1 && bishop_count == 1 || bishop_count == 3
+    }
+
+    pub fn is_end(&mut self) -> Option<GameEnd> {
+        // check if enough materials
+        let enough_mat = self.has_enough_mat(Color::White) || self.has_enough_mat(Color::Black);
+        if !enough_mat {
+            return Some(GameEnd::Draw);
+        }
+        // check if has legal moves
+        self.get_legal_moves().is_empty().then_some(())?;
+        // check if in check
+        if self.is_in_check(self.current_color_turn) {
+            Some(GameEnd::Win(!self.current_color_turn))
+        } else {
+            Some(GameEnd::Stalemate {
+                winner: !self.current_color_turn,
+            })
+        }
     }
 }
 
