@@ -407,14 +407,26 @@ impl Board {
             .map
             .iter()
             .filter_map(|(pos, piece)| piece.map(|piece| (pos, piece)))
-            .find(find_fn) else {
-                panic!("something went wrong: can't find {:?} king", color)
-            };
+            .find(find_fn)
+        else {
+            panic!("something went wrong: can't find {:?} king", color)
+        };
 
         // instead of going through every opponent piece and check if they have line of sight on the king, start from king and check every line of sight.
 
+        let pawn_moves = match color {
+            Color::White => [
+                HexVector::new_axial(-1, 0) + king_pos,
+                HexVector::new_axial(1, -1) + king_pos,
+            ],
+            Color::Black => [
+                HexVector::new_axial(-1, 1) + king_pos,
+                HexVector::new_axial(1, 0) + king_pos,
+            ],
+        };
+
         // check pawns (vectors from the king pos)
-        for pos_to_check in Piece::new(color, PieceKind::Pawn).get_moves_from(king_pos) {
+        for pos_to_check in pawn_moves {
             if let Some(piece) = self.get_piece_at(pos_to_check) {
                 if piece.color == color {
                     continue;
