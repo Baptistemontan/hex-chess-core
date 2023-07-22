@@ -143,6 +143,7 @@ impl Board {
         from: HexVector,
         to: HexVector,
         promote_to: Option<PieceKind>,
+        color: Color,
     ) -> Result<MaybePromoteMove, IllegalMove> {
         let take_piece = self.get_piece_at(to).map(|p| (p, to));
 
@@ -351,7 +352,7 @@ impl Board {
         }?;
 
         // if the mov is valid, check if moving result in check
-        if self.check_move_is_not_check(mov) {
+        if self.check_move_is_not_check_for(mov, color) {
             Ok(mov)
         } else {
             Err(IllegalMove::ResultToSelfInCheck)
@@ -380,7 +381,7 @@ impl Board {
         if !piece.is_vector_valid(movement) {
             return Err(IllegalMove::InvalidMovement(piece, movement));
         }
-        self.can_go_from_to(piece, from, to, promote_to)
+        self.can_go_from_to(piece, from, to, promote_to, color)
     }
 
     pub fn get_legal_moves(&mut self) -> HashMap<HexVector, HashSet<MaybePromoteMove>> {
@@ -395,7 +396,7 @@ impl Board {
 
         for (from, piece) in self.get_player_pieces_for(color).collect::<Vec<_>>() {
             for to in piece.get_moves_from(from) {
-                if let Ok(mov) = self.can_go_from_to(piece, from, to, None) {
+                if let Ok(mov) = self.can_go_from_to(piece, from, to, None, color) {
                     legal_moves.entry(from).or_default().insert(mov);
                 }
             }
@@ -571,8 +572,7 @@ impl Board {
         false
     }
 
-    fn check_move_is_not_check(&mut self, mov: MaybePromoteMove) -> bool {
-        let color = self.current_color_turn;
+    fn check_move_is_not_check_for(&mut self, mov: MaybePromoteMove, color: Color) -> bool {
         self.unchecked_move(mov.promote_unchecked(PieceKind::Queen));
         let can = !self.is_in_check(color);
         self.back_one_turn();
