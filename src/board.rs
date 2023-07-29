@@ -61,6 +61,10 @@ impl Board {
         }
     }
 
+    pub fn has_started(&self) -> bool {
+        !self.history.is_empty()
+    }
+
     fn get_default_map() -> HexMap<Option<Piece>> {
         HexMap::new_with_init(5, Self::original_piece_at)
     }
