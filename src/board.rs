@@ -2,16 +2,37 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     hex_coord::{HexMap, HexVector},
-    mov::{CanPromoteMove, IllegalMove, MaybePromoteMove, Move},
+    mov::{CanPromoteMove, FromHistoryError, IllegalMove, MaybePromoteMove, Move, MoveBecomes},
     piece::{Color, Piece, PieceKind, PieceMove},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Board {
     map: HexMap<Option<Piece>>,
     history: Vec<Move>,
     current_color_turn: Color,
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Board {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_newtype_struct("Board", &self.history)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Board {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let history = Vec::deserialize(deserializer)?;
+        Board::from_history(history).map_err(D::Error::custom)
+    }
 }
 
 impl Default for Board {
@@ -61,12 +82,40 @@ impl Board {
         }
     }
 
+    pub fn get_history(&self) -> &[Move] {
+        &self.history
+    }
+
     pub fn has_started(&self) -> bool {
         !self.history.is_empty()
     }
 
     pub fn get_last_move(&self) -> Option<Move> {
         self.history.last().copied()
+    }
+
+    pub fn from_history<I>(history: I) -> Result<Self, FromHistoryError>
+    where
+        I: IntoIterator<Item = Move>,
+    {
+        let mut board = Board::new();
+        for (i, mov) in history.into_iter().enumerate() {
+            let promote_to = match mov.becomes {
+                Some(MoveBecomes::Promote(kind)) => Some(kind),
+                _ => None,
+            };
+            let res = board.play_move(mov.from, mov.to, promote_to);
+
+            match res {
+                Ok(None) => {}
+                Ok(Some(promote_move)) => {
+                    return Err(FromHistoryError::PromotionError(i, promote_move))
+                }
+                Err(illegal_move) => return Err(FromHistoryError::IllegalMove(i, illegal_move)),
+            }
+        }
+
+        Ok(board)
     }
 
     fn get_default_map() -> HexMap<Option<Piece>> {
@@ -138,7 +187,7 @@ impl Board {
                 from,
                 to,
                 Piece::new(color, PieceKind::Pawn),
-                promote_to,
+                Some(MoveBecomes::Promote(promote_to)),
                 take,
             ))),
             None => Ok(MaybePromoteMove::new_can_promote(from, to, color, take)),
@@ -162,7 +211,7 @@ impl Board {
             _ => {}
         }
 
-        let default_move = MaybePromoteMove::new_move(from, to, piece, piece.kind, take_piece);
+        let default_move = MaybePromoteMove::new_move(from, to, piece, None, take_piece);
 
         let vector = to - from;
         // println!("normalized vec: {:?}", normalized_vec);
@@ -184,13 +233,9 @@ impl Board {
                     // can promote
                     Self::handle_promotion(from, to, Color::White, promote_to, take_piece)
                 } else {
-                    Ok(MaybePromoteMove::new_move(
-                        from,
-                        to,
-                        piece,
-                        PieceKind::Pawn,
-                        None,
-                    ))
+                    let becomes = (piece.kind == PieceKind::OriginalPawn)
+                        .then_some(MoveBecomes::Else(PieceKind::Pawn));
+                    Ok(MaybePromoteMove::new_move(from, to, piece, becomes, None))
                 }
             }
             // white pawn advance twice
@@ -204,7 +249,7 @@ impl Board {
                     from,
                     to,
                     piece,
-                    PieceKind::Pawn,
+                    Some(MoveBecomes::Else(PieceKind::Pawn)),
                     None,
                 ))
             }
@@ -216,13 +261,9 @@ impl Board {
                     // can promote
                     Self::handle_promotion(from, to, Color::Black, promote_to, take_piece)
                 } else {
-                    Ok(MaybePromoteMove::new_move(
-                        from,
-                        to,
-                        piece,
-                        PieceKind::Pawn,
-                        None,
-                    ))
+                    let becomes = (piece.kind == PieceKind::OriginalPawn)
+                        .then_some(MoveBecomes::Else(PieceKind::Pawn));
+                    Ok(MaybePromoteMove::new_move(from, to, piece, becomes, None))
                 }
             }
             // black pawn advance twice
@@ -236,7 +277,7 @@ impl Board {
                     from,
                     to,
                     piece,
-                    PieceKind::Pawn,
+                    Some(MoveBecomes::Else(PieceKind::Pawn)),
                     None,
                 ))
             }
@@ -254,11 +295,7 @@ impl Board {
                     // if the pawn takes and land on a place where there is originally a piece of it's color, it means
                     // that it's an orginal pawn and land on an original pawn position, so it stays an original pawn
                     Ok(MaybePromoteMove::new_move(
-                        from,
-                        to,
-                        piece,
-                        PieceKind::OriginalPawn,
-                        take_piece,
+                        from, to, piece, None, take_piece,
                     ))
                 } else {
                     // else it becomes a normal pawn
@@ -266,7 +303,7 @@ impl Board {
                         from,
                         to,
                         piece,
-                        PieceKind::Pawn,
+                        Some(MoveBecomes::Else(PieceKind::Pawn)),
                         take_piece,
                     ))
                 }
@@ -285,11 +322,7 @@ impl Board {
                     // if the pawn takes and land on a place where there is originally a piece of it's color, it means
                     // that it's an orginal pawn and land on an original pawn position, so it stays an original pawn
                     Ok(MaybePromoteMove::new_move(
-                        from,
-                        to,
-                        piece,
-                        PieceKind::OriginalPawn,
-                        take_piece,
+                        from, to, piece, None, take_piece,
                     ))
                 } else {
                     // else it becomes a normal pawn
@@ -297,7 +330,7 @@ impl Board {
                         from,
                         to,
                         piece,
-                        PieceKind::Pawn,
+                        Some(MoveBecomes::Else(PieceKind::Pawn)),
                         take_piece,
                     ))
                 }
@@ -315,7 +348,7 @@ impl Board {
                     from,
                     to,
                     piece,
-                    piece.kind,
+                    None,
                     Some((last_move.original_piece, last_move.to)),
                 ))
             }
@@ -332,7 +365,7 @@ impl Board {
                     from,
                     to,
                     piece,
-                    PieceKind::Pawn,
+                    None,
                     Some((last_move.original_piece, last_move.to)),
                 ))
             }
@@ -599,7 +632,11 @@ impl Board {
         }
 
         if let Some(to) = self.map.get_mut(mov.to) {
-            let piece = Piece::new(mov.original_piece.color, mov.becomes);
+            let kind = match mov.becomes {
+                None => mov.original_piece.kind,
+                Some(MoveBecomes::Else(kind) | MoveBecomes::Promote(kind)) => kind,
+            };
+            let piece = Piece::new(mov.original_piece.color, kind);
             to.replace(piece);
         }
 

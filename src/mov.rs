@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     hex_coord::HexVector,
     piece::{Color, Piece, PieceKind},
@@ -5,11 +7,18 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum MoveBecomes {
+    Promote(PieceKind),
+    Else(PieceKind),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Move {
     pub from: HexVector,
     pub to: HexVector,
     pub original_piece: Piece,
-    pub becomes: PieceKind,
+    pub becomes: Option<MoveBecomes>,
     pub take: Option<(Piece, HexVector)>,
 }
 
@@ -18,7 +27,7 @@ impl Move {
         from: HexVector,
         to: HexVector,
         original_piece: Piece,
-        becomes: PieceKind,
+        becomes: Option<MoveBecomes>,
         take: Option<(Piece, HexVector)>,
     ) -> Self {
         Move {
@@ -46,7 +55,7 @@ impl CanPromoteMove {
             self.from,
             self.to,
             Piece::new(self.color, PieceKind::Pawn),
-            promote_to,
+            Some(MoveBecomes::Promote(promote_to)),
             self.take,
         )
     }
@@ -107,7 +116,7 @@ impl MaybePromoteMove {
         from: HexVector,
         to: HexVector,
         original_piece: Piece,
-        becomes: PieceKind,
+        becomes: Option<MoveBecomes>,
         take: Option<(Piece, HexVector)>,
     ) -> Self {
         MaybePromoteMove::Move(Move::new(from, to, original_piece, becomes, take))
@@ -151,4 +160,27 @@ pub enum IllegalMove {
     InvalidMovement(Piece, HexVector),
     ResultToSelfInCheck,
     NotYourTurn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FromHistoryError {
+    IllegalMove(usize, IllegalMove),
+    PromotionError(usize, CanPromoteMove),
+}
+
+impl Display for FromHistoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FromHistoryError::IllegalMove(index, mov) => {
+                write!(f, "Illegal move at move {}: {:?}", index, mov)
+            }
+            FromHistoryError::PromotionError(index, promote_mov) => {
+                write!(
+                    f,
+                    "At move {} piece should have been promoted: {:?}",
+                    index, promote_mov
+                )
+            }
+        }
+    }
 }
