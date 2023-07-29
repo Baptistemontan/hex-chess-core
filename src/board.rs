@@ -65,6 +65,10 @@ impl Board {
         !self.history.is_empty()
     }
 
+    pub fn get_last_move(&self) -> Option<Move> {
+        self.history.last().copied()
+    }
+
     fn get_default_map() -> HexMap<Option<Piece>> {
         HexMap::new_with_init(5, Self::original_piece_at)
     }
