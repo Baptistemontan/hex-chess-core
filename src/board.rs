@@ -721,7 +721,7 @@ impl Board {
 
     pub fn unwind_history(&mut self) {
         let next_moves = std::mem::take(&mut self.history.next_moves);
-        for mov in next_moves {
+        for mov in next_moves.into_iter().rev() {
             self.unchecked_move(mov)
         }
     }
