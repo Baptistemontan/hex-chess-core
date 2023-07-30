@@ -6,10 +6,17 @@ use crate::{
     piece::{Color, Piece, PieceKind, PieceMove},
 };
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct History {
+    past_moves: Vec<Move>,
+    next_moves: Vec<Move>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     map: HexMap<Option<Piece>>,
-    history: Vec<Move>,
+    history: History,
     current_color_turn: Color,
 }
 
@@ -19,7 +26,7 @@ impl serde::Serialize for Board {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_newtype_struct("Board", &self.history)
+        self.history.serialize(serializer)
     }
 }
 
@@ -30,7 +37,7 @@ impl<'de> serde::Deserialize<'de> for Board {
         D: serde::Deserializer<'de>,
     {
         use serde::de::Error;
-        let history = Vec::deserialize(deserializer)?;
+        let history = History::deserialize(deserializer)?;
         Board::from_history(history).map_err(D::Error::custom)
     }
 }
@@ -82,24 +89,37 @@ impl Board {
         }
     }
 
-    pub fn get_history(&self) -> &[Move] {
-        &self.history
+    pub fn is_position_eq(&self, other: &Self) -> bool {
+        self.map == other.map && self.current_color_turn == other.current_color_turn
+    }
+
+    pub fn get_played_moves(&self) -> &[Move] {
+        &self.history.past_moves
+    }
+
+    pub fn get_next_moves(&self) -> &[Move] {
+        &self.history.next_moves
     }
 
     pub fn has_started(&self) -> bool {
-        !self.history.is_empty()
+        !self.history.past_moves.is_empty() || !self.history.next_moves.is_empty()
     }
 
-    pub fn get_last_move(&self) -> Option<Move> {
-        self.history.last().copied()
+    pub fn get_last_played_move(&self) -> Option<Move> {
+        self.history.past_moves.last().copied()
     }
 
-    pub fn from_history<I>(history: I) -> Result<Self, FromHistoryError>
-    where
-        I: IntoIterator<Item = Move>,
-    {
+    pub fn from_history(history: History) -> Result<Self, FromHistoryError> {
+        let next_moves_len = history.next_moves.len();
+
+        let iter = history
+            .past_moves
+            .into_iter()
+            .chain(history.next_moves)
+            .enumerate();
+
         let mut board = Board::new();
-        for (i, mov) in history.into_iter().enumerate() {
+        for (i, mov) in iter {
             let promote_to = match mov.becomes {
                 Some(MoveBecomes::Promote(kind)) => Some(kind),
                 _ => None,
@@ -115,6 +135,10 @@ impl Board {
             }
         }
 
+        for _ in 0..next_moves_len {
+            board.back_one_turn();
+        }
+
         Ok(board)
     }
 
@@ -125,7 +149,7 @@ impl Board {
     pub fn new() -> Self {
         Board {
             map: Self::get_default_map(),
-            history: Vec::new(),
+            history: History::default(),
             current_color_turn: Color::White,
         }
     }
@@ -151,6 +175,7 @@ impl Board {
 
     pub fn get_all_taken_pieces(&self) -> impl Iterator<Item = Piece> + '_ {
         self.history
+            .past_moves
             .iter()
             .filter_map(|mov| mov.take.map(|(piece, _)| piece))
     }
@@ -220,7 +245,7 @@ impl Board {
             piece.kind,
             piece.color,
             take_piece,
-            self.history.last(),
+            self.history.past_moves.last(),
             promote_to,
         ) {
             // as long as the destination piece is not the same color, knight and king can move.
@@ -446,6 +471,21 @@ impl Board {
         legal_moves
     }
 
+    pub fn branch_history(&self) -> Board {
+        let map = self.map.clone();
+        let current_color_turn = self.current_color_turn;
+        let past_moves = self.history.past_moves.clone();
+        let history = History {
+            past_moves,
+            next_moves: vec![],
+        };
+        Board {
+            map,
+            history,
+            current_color_turn,
+        }
+    }
+
     pub fn play_move(
         &mut self,
         from: HexVector,
@@ -454,6 +494,7 @@ impl Board {
     ) -> Result<Option<CanPromoteMove>, IllegalMove> {
         match self.is_move_legal(from, to, self.current_color_turn, promote_to)? {
             MaybePromoteMove::Move(mov) => {
+                self.history.next_moves.clear();
                 self.unchecked_move(mov);
                 Ok(None)
             }
@@ -616,7 +657,7 @@ impl Board {
     fn check_move_is_not_check_for(&mut self, mov: MaybePromoteMove, color: Color) -> bool {
         self.unchecked_move(mov.promote_unchecked(PieceKind::Queen));
         let can = !self.is_in_check(color);
-        self.back_one_turn();
+        self.back_one_turn_untracked();
         can
     }
 
@@ -640,14 +681,12 @@ impl Board {
             to.replace(piece);
         }
 
-        self.history.push(mov);
+        self.history.past_moves.push(mov);
         self.current_color_turn = !self.current_color_turn;
     }
 
-    pub fn back_one_turn(&mut self) {
-        let Some(last_move) = self.history.pop() else {
-            return;
-        };
+    pub fn back_one_turn_untracked(&mut self) -> Option<Move> {
+        let last_move = self.history.past_moves.pop()?;
 
         if let Some(from) = self.map.get_mut(last_move.from) {
             from.replace(last_move.original_piece);
@@ -663,7 +702,28 @@ impl Board {
             };
         }
 
-        self.current_color_turn = !self.current_color_turn
+        self.current_color_turn = !self.current_color_turn;
+
+        Some(last_move)
+    }
+
+    pub fn back_one_turn(&mut self) {
+        if let Some(last_move) = self.back_one_turn_untracked() {
+            self.history.next_moves.push(last_move);
+        }
+    }
+
+    pub fn advance_history(&mut self) {
+        if let Some(next_move) = self.history.next_moves.pop() {
+            self.unchecked_move(next_move);
+        }
+    }
+
+    pub fn unwind_history(&mut self) {
+        let next_moves = std::mem::take(&mut self.history.next_moves);
+        for mov in next_moves {
+            self.unchecked_move(mov)
+        }
     }
 
     fn get_remaining_pieces_for(&self, color: Color) -> impl Iterator<Item = PieceKind> + '_ {
@@ -736,11 +796,17 @@ mod tests {
 
         assert!(b1.play_move(mov.from(), mov.to(), None).unwrap().is_none());
 
-        assert_ne!(b1, b2);
+        let b3 = b1.clone();
+
+        assert!(!b1.is_position_eq(&b2));
 
         b1.back_one_turn();
 
-        assert_eq!(b1, b2);
+        assert!(b1.is_position_eq(&b2));
+
+        b1.advance_history();
+
+        assert!(b1.is_position_eq(&b3));
     }
 
     #[test]
@@ -827,7 +893,42 @@ mod tests {
 
     #[cfg(feature = "serde")]
     #[test]
-    fn test_ser_de() {
+    fn test_ser_de_with_moves() {
+        let mut board = Board::new();
+
+        board
+            .play_move(
+                HexVector::new_axial(1, 1),
+                HexVector::new_axial(1, -1),
+                None,
+            )
+            .unwrap();
+
+        board
+            .play_move(
+                HexVector::new_axial(0, -1),
+                HexVector::new_axial(0, 0),
+                None,
+            )
+            .unwrap();
+        board
+            .play_move(
+                HexVector::new_axial(0, 3),
+                HexVector::new_axial(3, -3),
+                None,
+            )
+            .unwrap();
+
+        let str = serde_json::to_string_pretty(&board).unwrap();
+
+        let de_board: Board = serde_json::from_str(&str).unwrap();
+
+        assert_eq!(board, de_board);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_ser_de_no_moves() {
         let board = Board::new();
 
         let str = serde_json::to_string_pretty(&board).unwrap();
