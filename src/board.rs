@@ -928,6 +928,43 @@ mod tests {
 
     #[cfg(feature = "serde")]
     #[test]
+    fn test_ser_de_with_moves_and_history_move() {
+        let mut board = Board::new();
+
+        board
+            .play_move(
+                HexVector::new_axial(1, 1),
+                HexVector::new_axial(1, -1),
+                None,
+            )
+            .unwrap();
+
+        board
+            .play_move(
+                HexVector::new_axial(0, -1),
+                HexVector::new_axial(0, 0),
+                None,
+            )
+            .unwrap();
+        board
+            .play_move(
+                HexVector::new_axial(0, 3),
+                HexVector::new_axial(3, -3),
+                None,
+            )
+            .unwrap();
+
+        board.back_one_turn();
+
+        let str = serde_json::to_string_pretty(&board).unwrap();
+
+        let de_board: Board = serde_json::from_str(&str).unwrap();
+
+        assert_eq!(board, de_board);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
     fn test_ser_de_no_moves() {
         let board = Board::new();
 
