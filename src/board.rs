@@ -9,15 +9,17 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct History {
+    /// past_moves are in chronological order
     past_moves: Vec<Move>,
+    /// next_moves are in reverse chronological order
     next_moves: Vec<Move>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     map: HexMap<Option<Piece>>,
+    /// history of moves leading to the current map,
     history: History,
-    current_color_turn: Color,
 }
 
 #[cfg(feature = "serde")]
@@ -51,11 +53,41 @@ impl Default for Board {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameEnd {
     Win(Color),
+    /// Draw, by lack of mat
     Draw,
-    Stalemate { winner: Color },
+    /// Glinskli's chess variant as a winner in case of stalemate, but win 3/4 of points and the loser 1/4 of points.
+    Stalemate {
+        winner: Color,
+    },
+}
+
+impl History {
+    const fn new() -> Self {
+        History {
+            past_moves: Vec::new(),
+            next_moves: Vec::new(),
+        }
+    }
+
+    /// get the turn at the moment the history is at
+    fn local_turn(&self) -> Color {
+        self.past_moves
+            .last()
+            .map(|mov| !mov.original_piece.color)
+            .unwrap_or(Color::White)
+    }
+
+    /// get the next turn regardless of where the history is at
+    fn turn(&self) -> Color {
+        self.next_moves
+            .first()
+            .map(|mov| !mov.original_piece.color)
+            .unwrap_or_else(|| self.local_turn())
+    }
 }
 
 impl Board {
+    /// return the piece (or lack of) that should be at the given position at the start of the game
     const fn original_piece_at(pos: HexVector) -> Option<Piece> {
         let (color, pos) = if pos.get_r() >= 0 {
             (Color::White, pos)
@@ -89,41 +121,51 @@ impl Board {
         }
     }
 
+    /// check if two position are equal, only check past moves.
     pub fn is_position_eq(&self, other: &Self) -> bool {
-        self.map == other.map && self.current_color_turn == other.current_color_turn
+        self.map == other.map && self.history.local_turn() == other.history.local_turn()
     }
 
+    /// Series of moves that lead to the current board
     pub fn get_played_moves(&self) -> &[Move] {
         &self.history.past_moves
     }
 
+    /// Next moves in the history (in reverse chronological order)
     pub fn get_next_moves(&self) -> &[Move] {
         &self.history.next_moves
     }
 
+    /// if the game already started
     pub fn has_started(&self) -> bool {
         !self.history.past_moves.is_empty() || !self.history.next_moves.is_empty()
     }
 
+    /// get the last played move, relative to history
     pub fn get_last_played_move(&self) -> Option<Move> {
         self.history.past_moves.last().copied()
     }
 
+    /// Create a Board based on the given history
+    /// Check all moves, even next moves, but roll them back to a board relative to the history
     pub fn from_history(history: History) -> Result<Self, FromHistoryError> {
         let next_moves_len = history.next_moves.len();
 
+        // all moves in chronological order
         let iter = history
             .past_moves
             .into_iter()
-            .chain(history.next_moves)
+            .chain(history.next_moves.into_iter().rev())
             .enumerate();
 
         let mut board = Board::new();
+
         for (i, mov) in iter {
             let promote_to = match mov.becomes {
                 Some(MoveBecomes::Promote(kind)) => Some(kind),
                 _ => None,
             };
+
             let res = board.play_move(mov.from, mov.to, promote_to);
 
             match res {
@@ -142,6 +184,7 @@ impl Board {
         Ok(board)
     }
 
+    /// create the default board
     fn get_default_map() -> HexMap<Option<Piece>> {
         HexMap::new_with_init(5, Self::original_piece_at)
     }
@@ -149,17 +192,16 @@ impl Board {
     pub fn new() -> Self {
         Board {
             map: Self::get_default_map(),
-            history: History::default(),
-            current_color_turn: Color::White,
+            history: History::new(),
         }
     }
 
     pub fn get_player_turn(&self) -> Color {
-        self.current_color_turn
+        self.history.local_turn()
     }
 
     pub fn get_current_player_pieces(&self) -> impl Iterator<Item = (HexVector, Piece)> + '_ {
-        self.get_player_pieces_for(self.current_color_turn)
+        self.get_player_pieces_for(self.get_player_turn())
     }
 
     pub fn get_player_pieces_for(
@@ -432,6 +474,9 @@ impl Board {
         color: Color,
         promote_to: Option<PieceKind>,
     ) -> Result<MaybePromoteMove, IllegalMove> {
+        if color != self.get_player_turn() {
+            return Err(IllegalMove::NotYourTurn);
+        }
         if from.mag() > 5 {
             return Err(IllegalMove::SrcOutOfBound(from));
         } else if to.mag() > 5 {
@@ -451,7 +496,7 @@ impl Board {
     }
 
     pub fn get_legal_moves(&mut self) -> HashMap<HexVector, HashSet<MaybePromoteMove>> {
-        self.get_legal_moves_for(self.current_color_turn)
+        self.get_legal_moves_for(self.get_player_turn())
     }
 
     pub fn get_legal_moves_for(
@@ -473,17 +518,12 @@ impl Board {
 
     pub fn branch_history(&self) -> Board {
         let map = self.map.clone();
-        let current_color_turn = self.current_color_turn;
         let past_moves = self.history.past_moves.clone();
         let history = History {
             past_moves,
             next_moves: vec![],
         };
-        Board {
-            map,
-            history,
-            current_color_turn,
-        }
+        Board { map, history }
     }
 
     pub fn play_move(
@@ -492,7 +532,7 @@ impl Board {
         to: HexVector,
         promote_to: Option<PieceKind>,
     ) -> Result<Option<CanPromoteMove>, IllegalMove> {
-        match self.is_move_legal(from, to, self.current_color_turn, promote_to)? {
+        match self.is_move_legal(from, to, self.get_player_turn(), promote_to)? {
             MaybePromoteMove::Move(mov) => {
                 self.history.next_moves.clear();
                 self.unchecked_move(mov);
@@ -682,7 +722,6 @@ impl Board {
         }
 
         self.history.past_moves.push(mov);
-        self.current_color_turn = !self.current_color_turn;
     }
 
     pub fn back_one_turn_untracked(&mut self) -> Option<Move> {
@@ -701,8 +740,6 @@ impl Board {
                 take.replace(take_piece);
             };
         }
-
-        self.current_color_turn = !self.current_color_turn;
 
         Some(last_move)
     }
@@ -754,7 +791,7 @@ impl Board {
 
         // can mate with 2 knight, a knight and a bishop, or 3 bishops
 
-        knight_count == 2 || knight_count == 1 && bishop_count == 1 || bishop_count == 3
+        knight_count >= 2 || knight_count >= 1 && bishop_count >= 1 || bishop_count >= 3
     }
 
     pub fn is_end(&mut self) -> Option<GameEnd> {
@@ -766,11 +803,12 @@ impl Board {
         // check if has legal moves
         self.get_legal_moves().is_empty().then_some(())?;
         // check if in check
-        if self.is_in_check(self.current_color_turn) {
-            Some(GameEnd::Win(!self.current_color_turn))
+        let current_player = self.get_player_turn();
+        if self.is_in_check(current_player) {
+            Some(GameEnd::Win(!current_player))
         } else {
             Some(GameEnd::Stalemate {
-                winner: !self.current_color_turn,
+                winner: !current_player,
             })
         }
     }
