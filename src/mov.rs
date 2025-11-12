@@ -164,7 +164,9 @@ pub enum IllegalMove {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FromHistoryError {
+    /// Illegal/Invalid move
     IllegalMove(usize, IllegalMove),
+    /// A promotion should have happened but did not
     PromotionError(usize, CanPromoteMove),
 }
 
