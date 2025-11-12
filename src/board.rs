@@ -151,16 +151,15 @@ impl Board {
     pub fn from_history(history: History) -> Result<Self, FromHistoryError> {
         let next_moves_len = history.next_moves.len();
 
+        let past_moves_iter = history.past_moves.into_iter();
+        let next_moves_iter = history.next_moves.into_iter().rev();
+
         // all moves in chronological order
-        let iter = history
-            .past_moves
-            .into_iter()
-            .chain(history.next_moves.into_iter().rev())
-            .enumerate();
+        let moves_iter = past_moves_iter.chain(next_moves_iter).enumerate();
 
         let mut board = Board::new();
 
-        for (i, mov) in iter {
+        for (i, mov) in moves_iter {
             let promote_to = match mov.becomes {
                 Some(MoveBecomes::Promote(kind)) => Some(kind),
                 _ => None,
@@ -177,6 +176,7 @@ impl Board {
             }
         }
 
+        // rollback moves
         for _ in 0..next_moves_len {
             board.back_one_turn();
         }
@@ -196,12 +196,18 @@ impl Board {
         }
     }
 
+    /// Return which player turn it is regardless of where the history is at
     pub fn get_player_turn(&self) -> Color {
+        self.history.turn()
+    }
+
+    /// Return which player turn it is relative to the history
+    pub fn get_local_turn(&self) -> Color {
         self.history.local_turn()
     }
 
     pub fn get_current_player_pieces(&self) -> impl Iterator<Item = (HexVector, Piece)> + '_ {
-        self.get_player_pieces_for(self.get_player_turn())
+        self.get_player_pieces_for(self.get_local_turn())
     }
 
     pub fn get_player_pieces_for(
@@ -474,7 +480,7 @@ impl Board {
         color: Color,
         promote_to: Option<PieceKind>,
     ) -> Result<MaybePromoteMove, IllegalMove> {
-        if color != self.get_player_turn() {
+        if color != self.get_local_turn() {
             return Err(IllegalMove::NotYourTurn);
         }
         if from.mag() > 5 {
@@ -495,10 +501,12 @@ impl Board {
         self.can_go_from_to(piece, from, to, promote_to, color)
     }
 
+    /// Return the legal moves for the current player
     pub fn get_legal_moves(&mut self) -> HashMap<HexVector, HashSet<MaybePromoteMove>> {
-        self.get_legal_moves_for(self.get_player_turn())
+        self.get_legal_moves_for(self.get_local_turn())
     }
 
+    /// Return the legal moves for the given player
     pub fn get_legal_moves_for(
         &mut self,
         color: Color,
@@ -532,7 +540,7 @@ impl Board {
         to: HexVector,
         promote_to: Option<PieceKind>,
     ) -> Result<Option<CanPromoteMove>, IllegalMove> {
-        match self.is_move_legal(from, to, self.get_player_turn(), promote_to)? {
+        match self.is_move_legal(from, to, self.get_local_turn(), promote_to)? {
             MaybePromoteMove::Move(mov) => {
                 self.history.next_moves.clear();
                 self.unchecked_move(mov);
@@ -803,7 +811,7 @@ impl Board {
         // check if has legal moves
         self.get_legal_moves().is_empty().then_some(())?;
         // check if in check
-        let current_player = self.get_player_turn();
+        let current_player = self.get_local_turn();
         if self.is_in_check(current_player) {
             Some(GameEnd::Win(!current_player))
         } else {
@@ -818,6 +826,27 @@ impl Board {
 mod tests {
 
     use super::*;
+
+    fn board_with_moves_and_rollback(forward_moves: usize, rollbacks: usize) -> Option<Board> {
+        let mut board = Board::new();
+
+        for _ in 0..(forward_moves + rollbacks) {
+            let legal_moves = board.get_legal_moves();
+            let (_, movs) = legal_moves.iter().next()?;
+            let mov = movs.iter().next().copied()?;
+            let promote_to = match mov {
+                MaybePromoteMove::CanPromote(_) => Some(PieceKind::Queen),
+                MaybePromoteMove::Move(_) => None,
+            };
+            board.play_move(mov.from(), mov.to(), promote_to).unwrap();
+        }
+
+        for _ in 0..rollbacks {
+            board.back_one_turn();
+        }
+
+        Some(board)
+    }
 
     #[test]
     fn test() {
@@ -932,30 +961,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn test_ser_de_with_moves() {
-        let mut board = Board::new();
-
-        board
-            .play_move(
-                HexVector::new_axial(1, 1),
-                HexVector::new_axial(1, -1),
-                None,
-            )
-            .unwrap();
-
-        board
-            .play_move(
-                HexVector::new_axial(0, -1),
-                HexVector::new_axial(0, 0),
-                None,
-            )
-            .unwrap();
-        board
-            .play_move(
-                HexVector::new_axial(0, 3),
-                HexVector::new_axial(3, -3),
-                None,
-            )
-            .unwrap();
+        let board = board_with_moves_and_rollback(5, 0).unwrap();
 
         let str = serde_json::to_string_pretty(&board).unwrap();
 
@@ -967,36 +973,19 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn test_ser_de_with_moves_and_history_move() {
-        let mut board = Board::new();
-
-        board
-            .play_move(
-                HexVector::new_axial(1, 1),
-                HexVector::new_axial(1, -1),
-                None,
-            )
-            .unwrap();
-
-        board
-            .play_move(
-                HexVector::new_axial(0, -1),
-                HexVector::new_axial(0, 0),
-                None,
-            )
-            .unwrap();
-        board
-            .play_move(
-                HexVector::new_axial(0, 3),
-                HexVector::new_axial(3, -3),
-                None,
-            )
-            .unwrap();
-
-        board.back_one_turn();
+        let rollback_counts = 6;
+        let mut board = board_with_moves_and_rollback(10, rollback_counts).unwrap();
 
         let str = serde_json::to_string_pretty(&board).unwrap();
 
-        let de_board: Board = serde_json::from_str(&str).unwrap();
+        let mut de_board: Board = serde_json::from_str(&str).unwrap();
+
+        assert_eq!(board, de_board);
+
+        for _ in 0..rollback_counts {
+            board.advance_history();
+            de_board.advance_history();
+        }
 
         assert_eq!(board, de_board);
     }
@@ -1014,10 +1003,21 @@ mod tests {
     }
 
     #[cfg(feature = "serde")]
-    #[ignore = "Just output the json of a serialiazed default board"]
+    #[ignore = "Just output the json of a serialized default board"]
     #[test]
     fn result_serialization() {
         let board = Board::new();
+
+        let str = serde_json::to_string_pretty(&board).unwrap();
+
+        println!("{}", str);
+    }
+
+    #[cfg(feature = "serde")]
+    #[ignore = "Just output the json of a serialized board with some moves"]
+    #[test]
+    fn result_serialization_with_moves() {
+        let board = board_with_moves_and_rollback(10, 10);
 
         let str = serde_json::to_string_pretty(&board).unwrap();
 
